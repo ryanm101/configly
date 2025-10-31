@@ -31,6 +31,7 @@ export class BlockGenerator {
   private config: Required<GeneratorConfig>;
   private generatedBlocks: Map<string, BlockDefinition>;
   private blockTypeMap: Map<string, string>;
+  private blockCategories: Map<string, string>;
 
   constructor(schema: JSONSchema, config: Partial<GeneratorConfig> = {}) {
     this.schema = schema;
@@ -45,6 +46,7 @@ export class BlockGenerator {
     };
     this.generatedBlocks = new Map();
     this.blockTypeMap = new Map();
+    this.blockCategories = new Map();
   }
 
   /**
@@ -53,10 +55,19 @@ export class BlockGenerator {
   generate(): GenerationResult {
     this.generatedBlocks.clear();
     this.blockTypeMap.clear();
+    this.blockCategories.clear();
 
     // Generate root block if schema is an object
     if (this.schema.type === 'object' || !this.schema.type) {
-      this.generateObjectBlock(this.schema, this.config.rootBlockName, true);
+      const rootTitle = this.schema.title ?? 'Configuration';
+      this.generateObjectBlock(
+        this.schema,
+        this.config.rootBlockName,
+        true,
+        0,
+        rootTitle,
+        'Configuration'
+      );
     } else {
       throw new Error('Root schema must be of type "object"');
     }
@@ -79,7 +90,9 @@ export class BlockGenerator {
     schema: JSONSchema,
     blockName: string,
     isRoot: boolean = false,
-    depth: number = 0
+    depth: number = 0,
+    displayName?: string,
+    topLevelCategory?: string
   ): string {
     if (depth > this.config.maxDepth) {
       console.warn(`Max depth exceeded for block: ${blockName}`);
@@ -92,7 +105,7 @@ export class BlockGenerator {
 
     const properties = schema.properties ?? {};
     const required = schema.required ?? [];
-    const title = schema.title ?? this.humanize(blockName);
+    const title = displayName ?? schema.title ?? this.humanize(blockName);
 
     const block: BlockDefinition = {
       type: blockName,
@@ -109,12 +122,22 @@ export class BlockGenerator {
       block.nextStatement = this.getBlockType(blockName);
     }
 
+    const categoryName = isRoot
+      ? 'Configuration'
+      : topLevelCategory ?? (depth === 1 ? title : 'Objects');
+
+    this.blockCategories.set(blockName, categoryName);
+
     let argIndex = 0;
 
     // Add properties as inputs
     for (const [propName, propSchema] of Object.entries(properties)) {
       const isRequired = required.includes(propName);
       const label = this.humanize(propName) + (isRequired ? ' *' : '');
+      const childDisplayName = propSchema.title ?? this.humanize(propName);
+      const childTopLevelCategory = isRoot
+        ? childDisplayName
+        : topLevelCategory ?? childDisplayName;
 
       // Add spacing and label
       block.message0 += ` %${++argIndex}`;
@@ -127,7 +150,8 @@ export class BlockGenerator {
         propSchema,
         propName,
         `${blockName}_${propName}`,
-        depth
+        depth,
+        childTopLevelCategory
       );
 
       if (input) {
@@ -149,10 +173,12 @@ export class BlockGenerator {
     schema: JSONSchema,
     propName: string,
     fullPath: string,
-    depth: number
+    depth: number,
+    topLevelCategory?: string
   ): BlockArgument | null {
     const propType = schema.type;
     const upperName = propName.toUpperCase();
+    const displayName = schema.title ?? this.humanize(propName);
 
     // Enum (dropdown)
     if (schema.enum) {
@@ -198,7 +224,13 @@ export class BlockGenerator {
         };
 
       case 'array': {
-        const arrayBlockType = this.generateArrayBlock(schema, fullPath, depth);
+        const arrayBlockType = this.generateArrayBlock(
+          schema,
+          fullPath,
+          depth,
+          topLevelCategory,
+          displayName
+        );
         return {
           type: 'input_statement',
           name: upperName,
@@ -211,7 +243,9 @@ export class BlockGenerator {
           schema,
           fullPath,
           false,
-          depth + 1
+          depth + 1,
+          displayName,
+          topLevelCategory
         );
         return {
           type: 'input_statement',
@@ -231,7 +265,9 @@ export class BlockGenerator {
   private generateArrayBlock(
     schema: JSONSchema,
     blockName: string,
-    depth: number
+    depth: number,
+    topLevelCategory?: string,
+    displayName?: string
   ): string {
     const itemSchema = Array.isArray(schema.items)
       ? schema.items[0]
@@ -240,9 +276,18 @@ export class BlockGenerator {
     const itemBlockType = `${blockName}_item`;
 
     if (itemSchema.type === 'object') {
-      this.generateObjectBlock(itemSchema, itemBlockType, false, depth + 1);
+      const itemTitle =
+        itemSchema.title ?? displayName ?? this.humanize(itemBlockType);
+      this.generateObjectBlock(
+        itemSchema,
+        itemBlockType,
+        false,
+        depth + 1,
+        itemTitle,
+        topLevelCategory
+      );
     } else {
-      this.generateItemBlock(itemSchema, itemBlockType);
+      this.generateItemBlock(itemSchema, itemBlockType, topLevelCategory);
     }
 
     return itemBlockType;
@@ -251,7 +296,11 @@ export class BlockGenerator {
   /**
    * Generate a simple item block for array elements
    */
-  private generateItemBlock(schema: JSONSchema, blockName: string): void {
+  private generateItemBlock(
+    schema: JSONSchema,
+    blockName: string,
+    topLevelCategory?: string
+  ): void {
     if (this.generatedBlocks.has(blockName)) {
       return;
     }
@@ -311,6 +360,10 @@ export class BlockGenerator {
 
     this.generatedBlocks.set(blockName, block);
     this.blockTypeMap.set(blockName, blockName);
+
+    if (topLevelCategory) {
+      this.blockCategories.set(blockName, topLevelCategory);
+    }
   }
 
   /**
@@ -341,37 +394,42 @@ export class BlockGenerator {
   private categorizeBlocks(
     blocks: BlockDefinition[]
   ): Record<string, string[]> {
-    const categories: Record<string, string[]> = {
-      Configuration: [],
-      Objects: [],
-      Strings: [],
-      Numbers: [],
-      Booleans: [],
-      Arrays: [],
-      Enums: [],
+    const categoryMap = new Map<string, string[]>([['Configuration', []]]);
+
+    for (const categoryName of this.blockCategories.values()) {
+      if (categoryName !== 'Configuration' && !categoryMap.has(categoryName)) {
+        categoryMap.set(categoryName, []);
+      }
+    }
+
+    const ensureCategory = (name: string) => {
+      if (!categoryMap.has(name)) {
+        categoryMap.set(name, []);
+      }
+      return categoryMap.get(name)!;
     };
 
     for (const block of blocks) {
       const type = block.type;
 
-      if (type === this.config.rootBlockName) {
-        categories.Configuration.push(type);
+      if (this.blockCategories.has(type)) {
+        ensureCategory(this.blockCategories.get(type)!).push(type);
+      } else if (type === this.config.rootBlockName) {
+        ensureCategory('Configuration').push(type);
       } else if (type.includes('_item')) {
-        categories.Arrays.push(type);
+        ensureCategory('Arrays').push(type);
       } else if (this.hasEnumField(block)) {
-        categories.Enums.push(type);
+        ensureCategory('Enums').push(type);
       } else if (this.hasFieldType(block, 'field_number')) {
-        categories.Numbers.push(type);
+        ensureCategory('Numbers').push(type);
       } else if (this.hasFieldType(block, 'field_checkbox')) {
-        categories.Booleans.push(type);
+        ensureCategory('Booleans').push(type);
       } else if (this.hasFieldType(block, 'field_input')) {
-        categories.Strings.push(type);
-      } else {
-        categories.Objects.push(type);
+        ensureCategory('Strings').push(type);
       }
     }
 
-    return categories;
+    return Object.fromEntries(categoryMap.entries());
   }
 
   private hasEnumField(block: BlockDefinition): boolean {
@@ -385,16 +443,36 @@ export class BlockGenerator {
   }
 
   private getCategoryColor(categoryName: string): number {
-    const colors: Record<string, number> = {
-      Configuration: 0,
-      Objects: 230,
-      Strings: 160,
-      Numbers: 290,
-      Booleans: 210,
-      Arrays: 120,
-      Enums: 65,
-    };
-    return colors[categoryName] ?? 230;
+    switch (categoryName) {
+      case 'Configuration':
+        return (
+          this.config.colorScheme.root ?? DEFAULT_COLOR_SCHEME.root
+        );
+      case 'Strings':
+        return (
+          this.config.colorScheme.string ?? DEFAULT_COLOR_SCHEME.string
+        );
+      case 'Numbers':
+        return (
+          this.config.colorScheme.number ?? DEFAULT_COLOR_SCHEME.number
+        );
+      case 'Booleans':
+        return (
+          this.config.colorScheme.boolean ?? DEFAULT_COLOR_SCHEME.boolean
+        );
+      case 'Arrays':
+        return (
+          this.config.colorScheme.array ?? DEFAULT_COLOR_SCHEME.array
+        );
+      case 'Enums':
+        return (
+          this.config.colorScheme.enum ?? DEFAULT_COLOR_SCHEME.enum
+        );
+      default:
+        return (
+          this.config.colorScheme.object ?? DEFAULT_COLOR_SCHEME.object
+        );
+    }
   }
 
   private getBlockType(blockName: string): string {
