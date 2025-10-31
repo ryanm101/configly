@@ -1,0 +1,37 @@
+{
+  "name": "configly",
+  "version": "1.0.0",
+  "description": "Generic configuration builder that generates visual block editors from JSON Schema",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "npm run dev --workspace=@configly/ui",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "clean": "npm run clean --workspaces && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/configly"
+  },
+  "keywords": [
+    "json-schema",
+    "blockly",
+    "visual-programming",
+    "configuration",
+    "code-generation"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

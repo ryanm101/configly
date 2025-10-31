@@ -1,0 +1,350 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://configly.dev/schemas/docker-compose.json",
+  "title": "Docker Compose Configuration",
+  "description": "Docker Compose file (version 3.8) schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "title": "Compose Version",
+      "description": "Docker Compose file version",
+      "enum": ["3.0", "3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8"],
+      "default": "3.8"
+    },
+    "services": {
+      "type": "array",
+      "title": "Services",
+      "description": "Service definitions",
+      "items": {
+        "type": "object",
+        "title": "Service",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Service Name",
+            "description": "Unique name for the service"
+          },
+          "image": {
+            "type": "string",
+            "title": "Image",
+            "description": "Docker image to use",
+            "default": "nginx:latest"
+          },
+          "build": {
+            "type": "object",
+            "title": "Build Configuration",
+            "description": "Build configuration (alternative to image)",
+            "properties": {
+              "context": {
+                "type": "string",
+                "title": "Context",
+                "description": "Build context path",
+                "default": "."
+              },
+              "dockerfile": {
+                "type": "string",
+                "title": "Dockerfile",
+                "description": "Dockerfile name",
+                "default": "Dockerfile"
+              },
+              "target": {
+                "type": "string",
+                "title": "Target",
+                "description": "Build target stage"
+              }
+            }
+          },
+          "container_name": {
+            "type": "string",
+            "title": "Container Name",
+            "description": "Custom container name"
+          },
+          "restart": {
+            "type": "string",
+            "title": "Restart Policy",
+            "description": "Container restart policy",
+            "enum": ["no", "always", "on-failure", "unless-stopped"],
+            "default": "unless-stopped"
+          },
+          "ports": {
+            "type": "array",
+            "title": "Port Mappings",
+            "description": "Port mappings (host:container)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "published": {
+                  "type": "integer",
+                  "title": "Host Port",
+                  "description": "Port on the host",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "target": {
+                  "type": "integer",
+                  "title": "Container Port",
+                  "description": "Port in the container",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "protocol": {
+                  "type": "string",
+                  "title": "Protocol",
+                  "enum": ["tcp", "udp"],
+                  "default": "tcp"
+                }
+              },
+              "required": ["published", "target"]
+            }
+          },
+          "environment": {
+            "type": "array",
+            "title": "Environment Variables",
+            "description": "Environment variables for the container",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "title": "Variable Name"
+                },
+                "value": {
+                  "type": "string",
+                  "title": "Variable Value"
+                }
+              },
+              "required": ["key", "value"]
+            }
+          },
+          "volumes": {
+            "type": "array",
+            "title": "Volume Mounts",
+            "description": "Volume mount definitions",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "title": "Mount Type",
+                  "enum": ["volume", "bind", "tmpfs"],
+                  "default": "volume"
+                },
+                "source": {
+                  "type": "string",
+                  "title": "Source",
+                  "description": "Source path or volume name"
+                },
+                "target": {
+                  "type": "string",
+                  "title": "Target",
+                  "description": "Container mount path"
+                },
+                "read_only": {
+                  "type": "boolean",
+                  "title": "Read Only",
+                  "default": false
+                }
+              },
+              "required": ["target"]
+            }
+          },
+          "networks": {
+            "type": "array",
+            "title": "Networks",
+            "description": "Networks to attach to",
+            "items": {
+              "type": "string",
+              "title": "Network Name"
+            }
+          },
+          "depends_on": {
+            "type": "array",
+            "title": "Dependencies",
+            "description": "Service dependencies",
+            "items": {
+              "type": "string",
+              "title": "Service Name"
+            }
+          },
+          "command": {
+            "type": "string",
+            "title": "Command",
+            "description": "Override default command"
+          },
+          "entrypoint": {
+            "type": "string",
+            "title": "Entrypoint",
+            "description": "Override default entrypoint"
+          },
+          "healthcheck": {
+            "type": "object",
+            "title": "Health Check",
+            "description": "Container health check configuration",
+            "properties": {
+              "test": {
+                "type": "string",
+                "title": "Test Command",
+                "description": "Health check command"
+              },
+              "interval": {
+                "type": "string",
+                "title": "Interval",
+                "description": "Time between checks (e.g., 30s)",
+                "default": "30s"
+              },
+              "timeout": {
+                "type": "string",
+                "title": "Timeout",
+                "description": "Timeout for each check (e.g., 10s)",
+                "default": "10s"
+              },
+              "retries": {
+                "type": "integer",
+                "title": "Retries",
+                "description": "Number of retries",
+                "minimum": 0,
+                "default": 3
+              },
+              "start_period": {
+                "type": "string",
+                "title": "Start Period",
+                "description": "Grace period before checking (e.g., 40s)",
+                "default": "40s"
+              }
+            }
+          },
+          "deploy": {
+            "type": "object",
+            "title": "Deploy Configuration",
+            "description": "Deployment configuration (for swarm mode)",
+            "properties": {
+              "replicas": {
+                "type": "integer",
+                "title": "Replicas",
+                "description": "Number of replicas",
+                "minimum": 0,
+                "default": 1
+              },
+              "restart_policy": {
+                "type": "object",
+                "title": "Restart Policy",
+                "properties": {
+                  "condition": {
+                    "type": "string",
+                    "title": "Condition",
+                    "enum": ["none", "on-failure", "any"],
+                    "default": "any"
+                  },
+                  "delay": {
+                    "type": "string",
+                    "title": "Delay",
+                    "default": "5s"
+                  },
+                  "max_attempts": {
+                    "type": "integer",
+                    "title": "Max Attempts",
+                    "default": 3
+                  }
+                }
+              },
+              "resources": {
+                "type": "object",
+                "title": "Resources",
+                "properties": {
+                  "limits": {
+                    "type": "object",
+                    "title": "Limits",
+                    "properties": {
+                      "cpus": {
+                        "type": "string",
+                        "title": "CPU Limit",
+                        "default": "0.5"
+                      },
+                      "memory": {
+                        "type": "string",
+                        "title": "Memory Limit",
+                        "default": "512M"
+                      }
+                    }
+                  },
+                  "reservations": {
+                    "type": "object",
+                    "title": "Reservations",
+                    "properties": {
+                      "cpus": {
+                        "type": "string",
+                        "title": "CPU Reservation",
+                        "default": "0.25"
+                      },
+                      "memory": {
+                        "type": "string",
+                        "title": "Memory Reservation",
+                        "default": "256M"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    "networks": {
+      "type": "array",
+      "title": "Networks",
+      "description": "Network definitions",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Network Name"
+          },
+          "driver": {
+            "type": "string",
+            "title": "Driver",
+            "enum": ["bridge", "overlay", "host", "none"],
+            "default": "bridge"
+          },
+          "external": {
+            "type": "boolean",
+            "title": "External",
+            "description": "Use an existing network",
+            "default": false
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    "volumes": {
+      "type": "array",
+      "title": "Volumes",
+      "description": "Named volume definitions",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Volume Name"
+          },
+          "driver": {
+            "type": "string",
+            "title": "Driver",
+            "default": "local"
+          },
+          "external": {
+            "type": "boolean",
+            "title": "External",
+            "description": "Use an existing volume",
+            "default": false
+          }
+        },
+        "required": ["name"]
+      }
+    }
+  },
+  "required": ["version", "services"]
+}

@@ -1,0 +1,294 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://configly.dev/schemas/helm-chart.json",
+  "title": "Helm Chart Values",
+  "description": "Configuration for a Kubernetes Helm Chart values file",
+  "type": "object",
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "title": "Replica Count",
+      "description": "Number of pod replicas",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 1
+    },
+    "image": {
+      "type": "object",
+      "title": "Container Image",
+      "description": "Docker image configuration",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "title": "Repository",
+          "description": "Docker image repository",
+          "default": "nginx"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "title": "Pull Policy",
+          "description": "Image pull policy",
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "default": "IfNotPresent"
+        },
+        "tag": {
+          "type": "string",
+          "title": "Tag",
+          "description": "Image tag (overrides chart appVersion)",
+          "default": "latest"
+        }
+      },
+      "required": ["repository"]
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "title": "Image Pull Secrets",
+      "description": "Secrets for pulling private images",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Secret Name",
+            "description": "Name of the secret"
+          }
+        },
+        "required": ["name"]
+      }
+    },
+    "nameOverride": {
+      "type": "string",
+      "title": "Name Override",
+      "description": "Override the chart name",
+      "default": ""
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "title": "Full Name Override",
+      "description": "Override the full resource names",
+      "default": ""
+    },
+    "service": {
+      "type": "object",
+      "title": "Service",
+      "description": "Kubernetes service configuration",
+      "properties": {
+        "type": {
+          "type": "string",
+          "title": "Service Type",
+          "description": "Type of service",
+          "enum": ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"],
+          "default": "ClusterIP"
+        },
+        "port": {
+          "type": "integer",
+          "title": "Port",
+          "description": "Service port",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 80
+        },
+        "targetPort": {
+          "type": "integer",
+          "title": "Target Port",
+          "description": "Container target port",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080
+        },
+        "nodePort": {
+          "type": "integer",
+          "title": "Node Port",
+          "description": "NodePort (only for NodePort service type)",
+          "minimum": 30000,
+          "maximum": 32767
+        }
+      },
+      "required": ["type", "port"]
+    },
+    "ingress": {
+      "type": "object",
+      "title": "Ingress",
+      "description": "Ingress configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "title": "Enabled",
+          "description": "Enable ingress",
+          "default": false
+        },
+        "className": {
+          "type": "string",
+          "title": "Class Name",
+          "description": "Ingress class name",
+          "default": "nginx"
+        },
+        "annotations": {
+          "type": "object",
+          "title": "Annotations",
+          "description": "Ingress annotations",
+          "properties": {
+            "cert-manager.io/cluster-issuer": {
+              "type": "string",
+              "title": "Cert Manager Issuer",
+              "default": "letsencrypt-prod"
+            },
+            "nginx.ingress.kubernetes.io/ssl-redirect": {
+              "type": "string",
+              "title": "SSL Redirect",
+              "enum": ["true", "false"],
+              "default": "true"
+            }
+          }
+        },
+        "hosts": {
+          "type": "array",
+          "title": "Hosts",
+          "description": "Ingress host rules",
+          "items": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "type": "string",
+                "title": "Hostname",
+                "description": "Hostname for the ingress",
+                "default": "chart-example.local"
+              },
+              "paths": {
+                "type": "array",
+                "title": "Paths",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "title": "Path",
+                      "default": "/"
+                    },
+                    "pathType": {
+                      "type": "string",
+                      "title": "Path Type",
+                      "enum": ["Prefix", "Exact", "ImplementationSpecific"],
+                      "default": "Prefix"
+                    }
+                  }
+                }
+              }
+            },
+            "required": ["host"]
+          }
+        },
+        "tls": {
+          "type": "array",
+          "title": "TLS Configuration",
+          "items": {
+            "type": "object",
+            "properties": {
+              "secretName": {
+                "type": "string",
+                "title": "Secret Name"
+              },
+              "hosts": {
+                "type": "array",
+                "title": "Hosts",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "title": "Resources",
+      "description": "CPU/Memory resource requests and limits",
+      "properties": {
+        "limits": {
+          "type": "object",
+          "title": "Limits",
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "title": "CPU Limit",
+              "default": "100m"
+            },
+            "memory": {
+              "type": "string",
+              "title": "Memory Limit",
+              "default": "128Mi"
+            }
+          }
+        },
+        "requests": {
+          "type": "object",
+          "title": "Requests",
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "title": "CPU Request",
+              "default": "100m"
+            },
+            "memory": {
+              "type": "string",
+              "title": "Memory Request",
+              "default": "128Mi"
+            }
+          }
+        }
+      }
+    },
+    "autoscaling": {
+      "type": "object",
+      "title": "Autoscaling",
+      "description": "Horizontal Pod Autoscaler configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "title": "Enabled",
+          "default": false
+        },
+        "minReplicas": {
+          "type": "integer",
+          "title": "Min Replicas",
+          "minimum": 1,
+          "default": 1
+        },
+        "maxReplicas": {
+          "type": "integer",
+          "title": "Max Replicas",
+          "minimum": 1,
+          "default": 10
+        },
+        "targetCPUUtilizationPercentage": {
+          "type": "integer",
+          "title": "Target CPU %",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 80
+        }
+      }
+    },
+    "env": {
+      "type": "array",
+      "title": "Environment Variables",
+      "description": "Environment variables for the container",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "required": ["name", "value"]
+      }
+    }
+  },
+  "required": ["replicaCount", "image", "service"]
+}
