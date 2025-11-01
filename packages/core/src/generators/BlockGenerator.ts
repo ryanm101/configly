@@ -395,9 +395,10 @@ export class BlockGenerator {
       return variantTypes.length === 1 ? variantTypes[0] : variantTypes;
     }
 
-    const itemBlockType = `${blockName}_item`;
-
+    // For primitive types, use shared item blocks (e.g., 'string_item', 'number_item')
+    // For objects, create specific item blocks (e.g., 'servers_item')
     if (itemSchema.type === 'object') {
+      const itemBlockType = `${blockName}_item`;
       const resolvedItem = this.resolver.resolve(itemSchema);
       const itemTitle =
         resolvedItem.title ?? displayName ?? this.humanize(itemBlockType);
@@ -410,11 +411,14 @@ export class BlockGenerator {
         category
       );
       this.blockSchemaMap.set(itemBlockType, resolvedItem);
+      return itemBlockType;
     } else {
-      this.generateItemBlock(itemSchema, itemBlockType, category);
+      // Use shared primitive item blocks
+      const primitiveType = itemSchema.type ?? 'string';
+      const itemBlockType = `${primitiveType}_item`;
+      this.generateItemBlock(itemSchema, itemBlockType, 'Common');
+      return itemBlockType;
     }
-
-    return itemBlockType;
   }
 
   /**
@@ -430,7 +434,9 @@ export class BlockGenerator {
     }
 
     const type = schema.type ?? 'string';
-    const title = schema.title ?? 'Item';
+    // For shared primitive item blocks, use simple titles like "String Item", "Number Item"
+    const typeString = Array.isArray(type) ? type[0] : type;
+    const title = schema.title ?? `${this.humanize(typeString)} Item`;
 
     // Get color - type could be a string or array, handle both cases
     let colour: number;
