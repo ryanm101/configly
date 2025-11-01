@@ -18,9 +18,12 @@ export function useSchemaBuilder(schema: JSONSchema | null) {
     try {
       const newBuilder = new SchemaConfigBuilder(schema);
       setBuilder(newBuilder);
+      // Set ready when builder is created - workspace initialization happens in BlocklyEditor
+      setIsReady(true);
     } catch (error) {
       console.error('Failed to create builder:', error);
       setBuilder(null);
+      setIsReady(false);
     }
   }, [schema]);
 

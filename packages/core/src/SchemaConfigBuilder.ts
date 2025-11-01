@@ -70,10 +70,12 @@ export class SchemaConfigBuilder {
 
     this.generationResult = this.blockGenerator.generate();
 
-    // Initialize config generator with the block type map
+    // Initialize config generator with the block metadata
     this.configGenerator = new ConfigGenerator(
       this.schema,
-      this.generationResult.blockTypeMap
+      this.generationResult.blockTypeMap,
+      this.generationResult.blockSchemaMap,
+      this.generationResult.variants
     );
 
     // Initialize config loader if workspace is available
@@ -81,7 +83,9 @@ export class SchemaConfigBuilder {
       this.configLoader = new ConfigLoader(
         this.schema,
         this.workspace,
-        this.generationResult.rootBlockType
+        this.generationResult.rootBlockType,
+        this.generationResult.blockSchemaMap,
+        this.generationResult.variants
       );
     }
 
@@ -130,7 +134,13 @@ export class SchemaConfigBuilder {
 
     // Create a new config generator with options if provided
     const generator = options
-      ? new ConfigGenerator(this.schema, this.generationResult.blockTypeMap, options)
+      ? new ConfigGenerator(
+          this.schema,
+          this.generationResult.blockTypeMap,
+          this.generationResult.blockSchemaMap,
+          this.generationResult.variants,
+          options
+        )
       : this.configGenerator;
 
     return generator.generate(this.workspace, this.generationResult.rootBlockType);
@@ -152,6 +162,8 @@ export class SchemaConfigBuilder {
       const generator = new ConfigGenerator(
         this.schema,
         this.generationResult!.blockTypeMap,
+        this.generationResult!.blockSchemaMap,
+        this.generationResult!.variants,
         { format: 'yaml' }
       );
       return generator.format(config);
@@ -239,7 +251,9 @@ export class SchemaConfigBuilder {
       this.configLoader = new ConfigLoader(
         this.schema,
         workspace,
-        this.generationResult.rootBlockType
+        this.generationResult.rootBlockType,
+        this.generationResult.blockSchemaMap,
+        this.generationResult.variants
       );
     }
   }

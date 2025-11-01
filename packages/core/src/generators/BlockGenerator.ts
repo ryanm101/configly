@@ -7,7 +7,9 @@ import type {
   ToolboxConfig,
   ColorScheme,
   BlockArgument,
+  BlockVariant,
 } from '../types';
+import { SchemaResolver } from '../utils/SchemaResolver';
 
 /**
  * Default color scheme for blocks
@@ -32,6 +34,9 @@ export class BlockGenerator {
   private generatedBlocks: Map<string, BlockDefinition>;
   private blockTypeMap: Map<string, string>;
   private blockCategories: Map<string, string>;
+  private resolver: SchemaResolver;
+  private blockSchemaMap: Map<string, JSONSchema>;
+  private variants: Map<string, BlockVariant[]>;
 
   constructor(schema: JSONSchema, config: Partial<GeneratorConfig> = {}) {
     this.schema = schema;
@@ -47,6 +52,9 @@ export class BlockGenerator {
     this.generatedBlocks = new Map();
     this.blockTypeMap = new Map();
     this.blockCategories = new Map();
+    this.resolver = new SchemaResolver(schema);
+    this.blockSchemaMap = new Map();
+    this.variants = new Map();
   }
 
   /**
@@ -56,12 +64,16 @@ export class BlockGenerator {
     this.generatedBlocks.clear();
     this.blockTypeMap.clear();
     this.blockCategories.clear();
+    this.blockSchemaMap.clear();
+    this.variants.clear();
+
+    const resolvedRoot = this.resolver.resolve(this.schema);
 
     // Generate root block if schema is an object
-    if (this.schema.type === 'object' || !this.schema.type) {
-      const rootTitle = this.schema.title ?? 'Configuration';
+    if (resolvedRoot.type === 'object' || !resolvedRoot.type) {
+      const rootTitle = resolvedRoot.title ?? 'Configuration';
       this.generateObjectBlock(
-        this.schema,
+        resolvedRoot,
         this.config.rootBlockName,
         true,
         0,
@@ -80,6 +92,8 @@ export class BlockGenerator {
       toolbox,
       rootBlockType: this.config.rootBlockName,
       blockTypeMap: new Map(this.blockTypeMap),
+      blockSchemaMap: new Map(this.blockSchemaMap),
+      variants: new Map(this.variants),
     };
   }
 
@@ -103,16 +117,17 @@ export class BlockGenerator {
       return blockName;
     }
 
-    const properties = schema.properties ?? {};
-    const required = schema.required ?? [];
-    const title = displayName ?? schema.title ?? this.humanize(blockName);
+    const resolvedSchema = this.resolver.resolve(schema);
+    const properties = resolvedSchema.properties ?? {};
+    const required = resolvedSchema.required ?? [];
+    const title = displayName ?? resolvedSchema.title ?? this.humanize(blockName);
 
     const block: BlockDefinition = {
       type: blockName,
       message0: title,
       args0: [],
       colour: isRoot ? this.config.colorScheme.root : this.config.colorScheme.object,
-      tooltip: schema.description ?? `Configure ${title}`,
+      tooltip: resolvedSchema.description ?? `Configure ${title}`,
       helpUrl: '',
     };
 
@@ -162,6 +177,7 @@ export class BlockGenerator {
 
     this.generatedBlocks.set(blockName, block);
     this.blockTypeMap.set(blockName, blockName);
+    this.blockSchemaMap.set(blockName, resolvedSchema);
 
     return blockName;
   }
@@ -176,33 +192,56 @@ export class BlockGenerator {
     depth: number,
     topLevelCategory?: string
   ): BlockArgument | null {
-    const propType = schema.type;
+    const resolvedSchema = this.resolver.resolve(schema);
+    const propType = resolvedSchema.type;
     const upperName = propName.toUpperCase();
-    const displayName = schema.title ?? this.humanize(propName);
+    const displayName = resolvedSchema.title ?? this.humanize(propName);
+
+    if (resolvedSchema.oneOf?.length) {
+      return this.generateUnionInput(
+        resolvedSchema.oneOf,
+        propName,
+        fullPath,
+        depth,
+        topLevelCategory,
+        displayName
+      );
+    }
+
+    if (resolvedSchema.anyOf?.length) {
+      return this.generateUnionInput(
+        resolvedSchema.anyOf,
+        propName,
+        fullPath,
+        depth,
+        topLevelCategory,
+        displayName
+      );
+    }
 
     // Enum (dropdown)
-    if (schema.enum) {
+    if (resolvedSchema.enum) {
       return {
         type: 'field_dropdown',
         name: upperName,
-        options: schema.enum.map((val) => [String(val), String(val)]),
+        options: resolvedSchema.enum.map((val) => [String(val), String(val)]),
       };
     }
 
     // Handle different types
     switch (propType) {
       case 'string':
-        if (schema.format === 'date') {
+        if (resolvedSchema.format === 'date') {
           return {
             type: 'field_date',
             name: upperName,
-            text: (schema.default as string) ?? '',
+            text: (resolvedSchema.default as string) ?? '',
           };
         }
         return {
           type: 'field_input',
           name: upperName,
-          text: (schema.default as string) ?? '',
+          text: (resolvedSchema.default as string) ?? '',
         };
 
       case 'number':
@@ -210,9 +249,9 @@ export class BlockGenerator {
         return {
           type: 'field_number',
           name: upperName,
-          value: (schema.default as number) ?? 0,
-          min: schema.minimum,
-          max: schema.maximum,
+          value: (resolvedSchema.default as number) ?? 0,
+          min: resolvedSchema.minimum,
+          max: resolvedSchema.maximum,
           precision: propType === 'integer' ? 1 : 0.01,
         };
 
@@ -220,12 +259,12 @@ export class BlockGenerator {
         return {
           type: 'field_checkbox',
           name: upperName,
-          checked: (schema.default as boolean) ?? false,
+          checked: (resolvedSchema.default as boolean) ?? false,
         };
 
       case 'array': {
         const arrayBlockType = this.generateArrayBlock(
-          schema,
+          resolvedSchema,
           fullPath,
           depth,
           topLevelCategory,
@@ -240,7 +279,7 @@ export class BlockGenerator {
 
       case 'object': {
         const objectBlockType = this.generateObjectBlock(
-          schema,
+          resolvedSchema,
           fullPath,
           false,
           depth + 1,
@@ -259,6 +298,53 @@ export class BlockGenerator {
     }
   }
 
+  private generateUnionInput(
+    options: JSONSchema[],
+    propName: string,
+    fullPath: string,
+    depth: number,
+    topLevelCategory: string | undefined,
+    displayName: string
+  ): BlockArgument | null {
+    const variantTypes: string[] = [];
+
+    options.forEach((option, index) => {
+      const resolvedOption = this.resolver.resolve(option);
+      const variantTitle =
+        resolvedOption.title ?? `${displayName} Option ${index + 1}`;
+      const slug = this.slugify(variantTitle || `${propName}_${index + 1}`);
+      const variantBlockType = `${fullPath}_${slug}`;
+
+      this.generateObjectBlock(
+        resolvedOption,
+        variantBlockType,
+        false,
+        depth + 1,
+        variantTitle,
+        topLevelCategory
+      );
+
+      this.registerVariant(
+        fullPath,
+        variantBlockType,
+        resolvedOption,
+        variantTitle
+      );
+
+      variantTypes.push(variantBlockType);
+    });
+
+    if (variantTypes.length === 0) {
+      return null;
+    }
+
+    return {
+      type: 'input_statement',
+      name: propName.toUpperCase(),
+      check: variantTypes,
+    };
+  }
+
   /**
    * Generate array block and item blocks
    */
@@ -268,26 +354,64 @@ export class BlockGenerator {
     depth: number,
     topLevelCategory?: string,
     displayName?: string
-  ): string {
-    const itemSchema = Array.isArray(schema.items)
-      ? schema.items[0]
-      : schema.items ?? { type: 'string' };
+  ): string | string[] {
+    const resolvedSchema = this.resolver.resolve(schema);
+    const itemSchema = Array.isArray(resolvedSchema.items)
+      ? resolvedSchema.items[0]
+      : resolvedSchema.items ?? { type: 'string' };
+
+    const inheritCategory = depth > 0;
+    const category = inheritCategory ? topLevelCategory : undefined;
+
+    if (itemSchema.oneOf?.length || itemSchema.anyOf?.length) {
+      const variants = itemSchema.oneOf ?? itemSchema.anyOf ?? [];
+      const variantTypes = variants.map((variant, index) => {
+        const resolvedVariant = this.resolver.resolve(variant);
+        const variantTitle =
+          resolvedVariant.title ??
+          displayName ??
+          `${this.humanize(blockName)} Option ${index + 1}`;
+        const variantBlockType = `${blockName}_${this.slugify(variantTitle)}`;
+
+        this.generateObjectBlock(
+          resolvedVariant,
+          variantBlockType,
+          false,
+          depth + 1,
+          variantTitle,
+          category
+        );
+
+        this.registerVariant(
+          blockName,
+          variantBlockType,
+          resolvedVariant,
+          variantTitle
+        );
+
+        return variantBlockType;
+      });
+
+      return variantTypes.length === 1 ? variantTypes[0] : variantTypes;
+    }
 
     const itemBlockType = `${blockName}_item`;
 
     if (itemSchema.type === 'object') {
+      const resolvedItem = this.resolver.resolve(itemSchema);
       const itemTitle =
-        itemSchema.title ?? displayName ?? this.humanize(itemBlockType);
+        resolvedItem.title ?? displayName ?? this.humanize(itemBlockType);
       this.generateObjectBlock(
-        itemSchema,
+        resolvedItem,
         itemBlockType,
         false,
         depth + 1,
         itemTitle,
-        topLevelCategory
+        category
       );
+      this.blockSchemaMap.set(itemBlockType, resolvedItem);
     } else {
-      this.generateItemBlock(itemSchema, itemBlockType, topLevelCategory);
+      this.generateItemBlock(itemSchema, itemBlockType, category);
     }
 
     return itemBlockType;
@@ -364,6 +488,48 @@ export class BlockGenerator {
     if (topLevelCategory) {
       this.blockCategories.set(blockName, topLevelCategory);
     }
+  }
+
+  private registerVariant(
+    path: string,
+    blockType: string,
+    schema: JSONSchema,
+    title: string
+  ): void {
+    const discriminator = this.extractDiscriminator(schema);
+    const variants = this.variants.get(path) ?? [];
+    variants.push({ blockType, schema, title, discriminator });
+    this.variants.set(path, variants);
+  }
+
+  private extractDiscriminator(
+    schema: JSONSchema
+  ): BlockVariant['discriminator'] | undefined {
+    const properties = schema.properties ?? {};
+
+    for (const [key, value] of Object.entries(properties)) {
+      if (value && typeof value === 'object') {
+        const castValue = value as JSONSchema;
+        if (castValue.const !== undefined) {
+          return {
+            property: key,
+            value: castValue.const,
+          };
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private slugify(value: string): string {
+    const slug = value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .replace(/_{2,}/g, '_');
+
+    return slug.length > 0 ? slug : 'option';
   }
 
   /**

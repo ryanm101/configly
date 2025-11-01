@@ -183,6 +183,26 @@ export interface GenerationResult {
    * Map of schema paths to block types
    */
   blockTypeMap: Map<string, string>;
+
+  /**
+   * Map of block type to resolved schema definition
+   */
+  blockSchemaMap: Map<string, JSONSchema>;
+
+  /**
+   * Variants available for union schemas keyed by schema path
+   */
+  variants: Map<string, BlockVariant[]>;
+}
+
+export interface BlockVariant {
+  blockType: string;
+  schema: JSONSchema;
+  title: string;
+  discriminator?: {
+    property: string;
+    value: string | number | boolean;
+  };
 }
 
 /**

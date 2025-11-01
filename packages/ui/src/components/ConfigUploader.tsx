@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { Upload } from 'lucide-react';
+import yaml from 'js-yaml';
 import type { ConfigObject } from '@configly/core';
 
 interface ConfigUploaderProps {
@@ -16,14 +17,27 @@ export function ConfigUploader({ onConfigLoad }: ConfigUploaderProps) {
 
       try {
         const text = await file.text();
-        
+
         // Try JSON first
         let config: ConfigObject;
         try {
           config = JSON.parse(text);
         } catch {
-          // If not JSON, assume YAML (simple parser)
-          throw new Error('YAML parsing not implemented. Please use JSON files.');
+          // If not JSON, try YAML
+          try {
+            const parsed = yaml.load(text);
+            if (typeof parsed === 'object' && parsed !== null) {
+              config = parsed as ConfigObject;
+            } else {
+              throw new Error('Invalid YAML: Expected an object');
+            }
+          } catch (yamlError) {
+            throw new Error(
+              `Failed to parse file as JSON or YAML: ${
+                yamlError instanceof Error ? yamlError.message : String(yamlError)
+              }`
+            );
+          }
         }
 
         onConfigLoad(config);
@@ -52,9 +66,10 @@ export function ConfigUploader({ onConfigLoad }: ConfigUploaderProps) {
       <label
         htmlFor="config-upload"
         className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors cursor-pointer font-medium"
+        title="Upload existing config (JSON or YAML)"
       >
         <Upload size={18} />
-        Upload Config
+        Load Config
       </label>
     </>
   );

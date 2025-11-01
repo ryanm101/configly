@@ -69,6 +69,16 @@ export function BlocklyEditor({ builder, onWorkspaceChange }: BlocklyEditorProps
       });
     }
 
+    // Fix scrollbar metrics when toolbox is opened/closed
+    workspace.addChangeListener((event) => {
+      if (event.type === Blockly.Events.TOOLBOX_ITEM_SELECT) {
+        // Force scrollbar metrics recalculation after toolbox interaction
+        setTimeout(() => {
+          workspace.resize();
+        }, 0);
+      }
+    });
+
     // Cleanup
     return () => {
       workspace.dispose();

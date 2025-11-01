@@ -1,5 +1,5 @@
 import type * as Blockly from 'blockly';
-import type { JSONSchema, ConfigObject } from '../types';
+import type { JSONSchema, ConfigObject, BlockVariant } from '../types';
 
 /**
  * Loads existing configurations into Blockly workspace
@@ -8,15 +8,21 @@ export class ConfigLoader {
   private schema: JSONSchema;
   private workspace: Blockly.Workspace;
   private rootBlockType: string;
+  private blockSchemaMap: Map<string, JSONSchema>;
+  private variants: Map<string, BlockVariant[]>;
 
   constructor(
     schema: JSONSchema,
     workspace: Blockly.Workspace,
-    rootBlockType: string
+    rootBlockType: string,
+    blockSchemaMap: Map<string, JSONSchema>,
+    variants: Map<string, BlockVariant[]>
   ) {
     this.schema = schema;
     this.workspace = workspace;
     this.rootBlockType = rootBlockType;
+    this.blockSchemaMap = blockSchemaMap;
+    this.variants = variants;
   }
 
   /**
@@ -28,7 +34,7 @@ export class ConfigLoader {
 
     // Create root block
     const rootBlock = this.workspace.newBlock(this.rootBlockType);
-    this.populateBlock(rootBlock, config, this.schema);
+    this.populateBlock(rootBlock, config, this.schema, this.rootBlockType);
 
     // Initialize and render all blocks
     // TypeScript doesn't know about these methods, but they exist at runtime
@@ -55,9 +61,11 @@ export class ConfigLoader {
   private populateBlock(
     block: Blockly.Block,
     config: ConfigObject,
-    schema: JSONSchema
+    schema: JSONSchema,
+    path: string
   ): void {
-    const properties = schema.properties ?? {};
+    const effectiveSchema = this.blockSchemaMap.get(block.type) ?? schema;
+    const properties = effectiveSchema.properties ?? {};
 
     for (const [propName, propSchema] of Object.entries(properties)) {
       const upperName = propName.toUpperCase();
@@ -67,7 +75,8 @@ export class ConfigLoader {
         continue;
       }
 
-      this.setFieldValue(block, upperName, value, propSchema);
+      const childPath = `${path}_${propName}`;
+      this.setFieldValue(block, upperName, value, propSchema, childPath);
     }
   }
 
@@ -78,9 +87,15 @@ export class ConfigLoader {
     block: Blockly.Block,
     fieldName: string,
     value: any,
-    schema: JSONSchema
+    schema: JSONSchema,
+    path: string
   ): void {
     const propType = schema.type;
+
+    if (schema.oneOf?.length || schema.anyOf?.length) {
+      this.loadUnionValue(block, fieldName, value, path);
+      return;
+    }
 
     // Primitive types - set directly
     if (
@@ -104,13 +119,13 @@ export class ConfigLoader {
 
     // Array type - create item blocks
     if (propType === 'array' && Array.isArray(value)) {
-      this.loadArrayValue(block, fieldName, value, schema);
+      this.loadArrayValue(block, fieldName, value, schema, path);
       return;
     }
 
     // Object type - create nested block
     if (propType === 'object' && typeof value === 'object') {
-      this.loadObjectValue(block, fieldName, value, schema);
+      this.loadObjectValue(block, fieldName, value, schema, path);
       return;
     }
   }
@@ -122,7 +137,8 @@ export class ConfigLoader {
     parentBlock: Blockly.Block,
     fieldName: string,
     items: any[],
-    schema: JSONSchema
+    schema: JSONSchema,
+    path: string
   ): void {
     if (items.length === 0) {
       return;
@@ -140,9 +156,10 @@ export class ConfigLoader {
     let previousBlock: Blockly.Block | null = null;
 
     for (const item of items) {
-      // Determine block type from connection check
+      const variant = this.selectVariant(path, item);
       const check = input.connection.getCheck();
-      const itemBlockType = Array.isArray(check) ? check[0] : check;
+      const defaultBlockType = Array.isArray(check) ? check[0] : check;
+      const itemBlockType = variant?.blockType ?? defaultBlockType;
 
       if (!itemBlockType) {
         console.warn(`No block type found for array field: ${fieldName}`);
@@ -150,20 +167,13 @@ export class ConfigLoader {
       }
 
       const itemBlock = this.workspace.newBlock(itemBlockType);
+      const effectiveSchema =
+        variant?.schema ?? this.blockSchemaMap.get(itemBlockType) ?? itemSchema;
 
-      if (itemSchema.type === 'object' && typeof item === 'object') {
-        this.populateBlock(itemBlock, item, itemSchema);
+      if (effectiveSchema.type === 'object' && typeof item === 'object') {
+        this.populateBlock(itemBlock, item, effectiveSchema, itemBlock.type);
       } else {
-        // Primitive value
-        try {
-          if (itemSchema.type === 'boolean') {
-            itemBlock.setFieldValue(item ? 'TRUE' : 'FALSE', 'VALUE');
-          } else {
-            itemBlock.setFieldValue(String(item), 'VALUE');
-          }
-        } catch (error) {
-          console.warn('Failed to set item value:', error);
-        }
+        this.setPrimitiveValue(itemBlock, 'VALUE', item, effectiveSchema);
       }
 
       // Connect blocks
@@ -186,16 +196,18 @@ export class ConfigLoader {
     parentBlock: Blockly.Block,
     fieldName: string,
     value: ConfigObject,
-    schema: JSONSchema
+    schema: JSONSchema,
+    path: string
   ): void {
     const input = parentBlock.getInput(fieldName);
     if (!input || !input.connection) {
       return;
     }
 
-    // Determine block type from connection check
+    const variant = this.selectVariant(path, value);
     const check = input.connection.getCheck();
-    const objectBlockType = Array.isArray(check) ? check[0] : check;
+    const defaultBlockType = Array.isArray(check) ? check[0] : check;
+    const objectBlockType = variant?.blockType ?? defaultBlockType;
 
     if (!objectBlockType) {
       console.warn(`No block type found for object field: ${fieldName}`);
@@ -203,9 +215,81 @@ export class ConfigLoader {
     }
 
     const objectBlock = this.workspace.newBlock(objectBlockType);
-    this.populateBlock(objectBlock, value, schema);
+    const effectiveSchema =
+      variant?.schema ?? this.blockSchemaMap.get(objectBlockType) ?? schema;
+
+    this.populateBlock(objectBlock, value, effectiveSchema, objectBlock.type);
 
     // Connect to parent
     input.connection.connect(objectBlock.previousConnection!);
+  }
+
+  private loadUnionValue(
+    block: Blockly.Block,
+    fieldName: string,
+    value: any,
+    path: string
+  ): void {
+    if (typeof value === 'object' && value !== null) {
+      this.loadObjectValue(block, fieldName, value, { type: 'object' }, path);
+      return;
+    }
+
+    const input = block.getInput(fieldName);
+    if (!input || !input.connection) {
+      return;
+    }
+
+    const variant = this.selectVariant(path, value);
+    const check = input.connection.getCheck();
+    const defaultBlockType = Array.isArray(check) ? check[0] : check;
+    const blockType = variant?.blockType ?? defaultBlockType;
+
+    if (!blockType) {
+      console.warn(`No block type found for union field: ${fieldName}`);
+      return;
+    }
+
+    const variantBlock = this.workspace.newBlock(blockType);
+    const schema = variant?.schema ?? this.blockSchemaMap.get(blockType);
+    this.setPrimitiveValue(variantBlock, 'VALUE', value, schema ?? {});
+    input.connection.connect(variantBlock.previousConnection!);
+  }
+
+  private setPrimitiveValue(
+    block: Blockly.Block,
+    fieldName: string,
+    value: any,
+    schema: JSONSchema
+  ): void {
+    try {
+      if (schema.type === 'boolean') {
+        block.setFieldValue(value ? 'TRUE' : 'FALSE', fieldName);
+      } else {
+        block.setFieldValue(String(value), fieldName);
+      }
+    } catch (error) {
+      console.warn('Failed to set primitive value:', error);
+    }
+  }
+
+  private selectVariant(path: string, value: any): BlockVariant | undefined {
+    const candidates = this.variants.get(path);
+    if (!candidates || candidates.length === 0) {
+      return undefined;
+    }
+
+    if (value && typeof value === 'object') {
+      for (const candidate of candidates) {
+        if (
+          candidate.discriminator &&
+          value[candidate.discriminator.property] === candidate.discriminator.value
+        ) {
+          return candidate;
+        }
+      }
+    }
+
+    return candidates[0];
   }
 }
